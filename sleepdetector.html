@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>졸음 감지기</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f5f6f8;color:#20242a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.app{width:min(920px,94vw);margin:20px auto;background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:20px}
+h1{margin:0 0 5px;font-size:22px}.sub{margin:0 0 16px;color:#6b7280;font-size:13px}
+.grid{display:grid;grid-template-columns:1.35fr .8fr;gap:16px}
+.videoBox{position:relative;background:#000;border-radius:16px;overflow:hidden;aspect-ratio:4/3}
+video{width:100%;height:100%;object-fit:cover;display:block;transform:scaleX(-1)}
+canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;transform:scaleX(-1)}
+.badge{position:absolute;left:10px;top:10px;padding:6px 10px;border-radius:999px;background:#ffffffe6;font-weight:700;font-size:12px;z-index:10}
+.side{display:flex;flex-direction:column;gap:8px}
+.card{border:1px solid #e5e7eb;border-radius:12px;padding:10px}
+.label{font-size:11px;color:#6b7280;margin-bottom:2px}.value{font-size:22px;font-weight:800}
+.status{font-size:18px;font-weight:800}.normal{color:#167a45}.warn{color:#c62828}
+.controls{display:flex;gap:8px;margin-top:5px}
+button{flex:1;border:0;border-radius:10px;padding:14px;font-size:16px;font-weight:700;background:#111827;color:#fff;cursor:pointer}
+button:disabled{opacity:.4;cursor:not-allowed}
+input{width:100%}
+#debugLog{background:#1e1e1e;color:#4af626;font-family:monospace;font-size:11px;padding:10px;border-radius:8px;max-height:120px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+@media(max-width:700px){
+ .app{width:100%;min-height:100vh;margin:0;border:0;border-radius:0;padding:12px}
+ .grid{grid-template-columns:1fr}
+ .videoBox{aspect-ratio:3/4;max-height:50vh}
+ .side{display:grid;grid-template-columns:1fr 1fr}
+ .side .controls,.side #debugBox{grid-column:1/-1}
+}
+</style>
+</head>
+<body>
+<div class="app">
+ <h1>졸음 감지기</h1>
+ <p class="sub">실시간 감지 (안정화 버전)</p>
+
+ <div class="grid">
+  <div class="videoBox">
+   <video id="video" autoplay muted playsinline webkit-playsinline></video>
+   <canvas id="canvas"></canvas>
+   <div class="badge" id="badge">시작 대기 중</div>
+  </div>
+
+  <div class="side">
+   <div class="card"><div class="label">EAR (눈 개폐도)</div><div class="value" id="ear">—</div></div>
+   <div class="card"><div class="label">감긴 시간</div><div class="value" id="closed">0.00 s</div></div>
+   <div class="card"><div class="label">상태</div><div class="status normal" id="status">대기</div></div>
+
+   <div class="card">
+    <div class="label">기준값 (EAR): <span id="thText">0.21</span></div>
+    <input id="threshold" type="range" min="0.12" max="0.32" step="0.01" value="0.21">
+   </div>
+
+   <div class="controls">
+    <button id="startBtn">카메라 시작</button>
+    <button id="stopBtn" disabled>중지</button>
+   </div>
+
+   <div id="debugBox" style="margin-top:8px">
+    <div style="font-size:11px;font-weight:bold;margin-bottom:3px;color:#666">실행 상태</div>
+    <div id="debugLog">준비 완료. [카메라 시작]을 누르세요.</div>
+   </div>
+  </div>
+ </div>
+</div>
+
+<script>
+const logEl = document.getElementById("debugLog");
+function log(msg) {
+  console.log(msg);
+  logEl.textContent += "\n> " + msg;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+window.onerror = function(msg) {
+  log(`[오류] ${msg}`);
+};
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const startBtn = document.getElementById("startBtn");
+const stopBtn = document.getElementById("stopBtn");
+const badge = document.getElementById("badge");
+const earEl = document.getElementById("ear");
+const closedEl = document.getElementById("closed");
+const statusEl = document.getElementById("status");
+const threshold = document.getElementById("threshold");
+const thText = document.getElementById("thText");
+
+let faceMesh = null;
+let camera = null;
+let closedStart = null;
+
+const LEFT = [33, 160, 158, 133, 153, 144];
+const RIGHT = [362, 385, 387, 263, 373, 380];
+
+threshold.oninput = () => thText.textContent = Number(threshold.value).toFixed(2);
+
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function calcEAR(p, ids) {
+  const [a,b,c,d,e,f] = ids.map(i => p[i]);
+  return (dist(b,f) + dist(c,e)) / (2 * dist(a,d));
+}
+
+// 비프음 재생
+let audioCtx = null;
+let lastBeep = 0;
+function playAlarm() {
+  const now = Date.now();
+  if (now - lastBeep < 1500) return;
+  lastBeep = now;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = 800;
+    gain.gain.value = 0.15;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.3);
+  } catch(e) {}
+}
+
+// 얼굴 랜드마크 분석 콜백
+function onResults(results) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+    const p = results.multiFaceLandmarks[0];
+    const ear = (calcEAR(p, LEFT) + calcEAR(p, RIGHT)) / 2;
+    earEl.textContent = ear.toFixed(3);
+
+    const th = Number(threshold.value);
+    if (ear < th) {
+      if (closedStart === null) closedStart = performance.now();
+      const sec = (performance.now() - closedStart) / 1000;
+      closedEl.textContent = sec.toFixed(2) + " s";
+
+      if (sec >= 1.0) {
+        statusEl.textContent = "졸음 감지!!";
+        statusEl.className = "status warn";
+        badge.textContent = "⚠️ 졸음 경고!";
+        playAlarm();
+      } else {
+        statusEl.textContent = "눈 감김";
+        statusEl.className = "status warn";
+        badge.textContent = "눈 감김 감지";
+      }
+    } else {
+      closedStart = null;
+      closedEl.textContent = "0.00 s";
+      statusEl.textContent = "정상";
+      statusEl.className = "status normal";
+      badge.textContent = "얼굴 감지 중";
+    }
+  } else {
+    earEl.textContent = "—";
+    statusEl.textContent = "얼굴 없음";
+    statusEl.className = "status normal";
+    badge.textContent = "얼굴을 찾는 중";
+  }
+}
+
+async function start() {
+  startBtn.disabled = true;
+  badge.textContent = "카메라 준비 중...";
+  log("FaceMesh 엔진 로드 중...");
+
+  try {
+    if (!window.FaceMesh) {
+      throw new Error("FaceMesh 라이브러리가 로드되지 않았습니다. 인터넷 상태를 확인해주세요.");
+    }
+
+    if (!faceMesh) {
+      faceMesh = new FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+      });
+      faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+      faceMesh.onResults(onResults);
+      log("엔진 옵션 설정 완료");
+    }
+
+    log("카메라 스트림 시작...");
+    camera = new Camera(video, {
+      onFrame: async () => {
+        if (canvas.width !== video.videoWidth && video.videoWidth > 0) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+        }
+        await faceMesh.send({ image: video });
+      },
+      facingMode: "user",
+      width: 480,
+      height: 640
+    });
+
+    await camera.start();
+    log("카메라 및 AI 엔진 실행 성공!");
+    badge.textContent = "작동 중";
+    stopBtn.disabled = false;
+
+  } catch (err) {
+    log("실패: " + err.message);
+    badge.textContent = "에러 발생";
+    alert("실행 실패:\n" + err.message);
+    startBtn.disabled = false;
+  }
+}
+
+function stop() {
+  if (camera) {
+    camera.stop();
+    camera = null;
+  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  badge.textContent = "중지됨";
+  earEl.textContent = "—";
+  closedEl.textContent = "0.00 s";
+  statusEl.textContent = "대기";
+  statusEl.className = "status normal";
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+  log("카메라가 중지되었습니다.");
+}
+
+startBtn.onclick = start;
+stopBtn.onclick = stop;
+</script>
+</body>
+</html>
