@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AI 곰디와 함께하는 쉬운 키오스크 주문</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <style>
+    :root {
+      --bg: #FDFBF7;
+      --primary: #FF7B54;
+      --primary-light: #FFEAD2;
+      --bear-color: #8D5B4C;
+      --card-bg: #FFFFFF;
+      --text: #222222;
+      --text-muted: #666666;
+      --border-color: #EADBC8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Pretendard', sans-serif; -webkit-tap-highlight-color: transparent; }
+    
+    body {
+      background: #1E2028;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 10px;
+    }
+
+    /* 키오스크 스마트폰/태블릿 프레임 */
+    .kiosk-screen {
+      width: 100%;
+      max-width: 480px;
+      height: 94vh;
+      max-height: 900px;
+      background: var(--bg);
+      border-radius: 36px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 8px solid #333845;
+      position: relative;
+    }
+
+    /* 상단 헤더 */
+    .kiosk-header {
+      padding: 14px 20px;
+      background: #FFF;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 2px solid #F0ECE4;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .kiosk-badge {
+      background: var(--primary-light);
+      color: var(--primary);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-reset {
+      background: #F3F1EC;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    /* 현재 주문 요약 상단 바 (어르신 기억 보조용) */
+    .live-summary-bar {
+      background: #FFF8EE;
+      border-bottom: 2px dashed #EBD3B0;
+      padding: 10px 20px;
+      font-size: 13px;
+      color: var(--bear-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    /* 대화창 스크롤 영역 */
+    .chat-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 18px 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .chat-container::-webkit-scrollbar { display: none; }
+
+    /* AI 캐릭터 */
+    .character-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    .character-avatar {
+      width: 90px;
+      height: 90px;
+      background: #E8D5C4;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 52px;
+      box-shadow: 0 6px 18px rgba(141,91,76,0.15);
+      border: 3px solid #FFF;
+      animation: float 2.8s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+    .character-name {
+      margin-top: 6px;
+      font-size: 16px;
+      font-weight: 900;
+      color: var(--bear-color);
+    }
+
+    /* 말풍선 공통 스타일 */
+    .bubble {
+      max-width: 88%;
+      padding: 16px 20px;
+      border-radius: 22px;
+      font-size: 19px;
+      line-height: 1.5;
+      font-weight: 700;
+      animation: popIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      word-break: keep-all;
+    }
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.92) translateY(8px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .bubble.ai {
+      background: #FFFFFF;
+      color: var(--text);
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.05);
+      border: 2px solid #EFEAE2;
+    }
+
+    .bubble.user {
+      background: var(--primary);
+      color: #FFFFFF;
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+      box-shadow: 0 4px 14px rgba(255,123,84,0.25);
+    }
+
+    /* 선택지 그룹 */
+    .choice-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      animation: fadeIn 0.35s ease forwards;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .choice-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    /* 크고 직관적인 선택 버튼 */
+    .choice-btn {
+      background: #FFFFFF;
+      border: 3px solid var(--border-color);
+      border-radius: 18px;
+      padding: 16px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text);
+      cursor: pointer;
+      text-align: left;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.02);
+      transition: all 0.12s ease;
+    }
+    .choice-btn:active {
+      transform: scale(0.97);
+      background: var(--primary-light);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+    .choice-btn .choice-icon {
+      font-size: 26px;
+      flex-shrink: 0;
+    }
+    .choice-sub-text {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* 생각 중 인디케이터 */
+    .thinking-bubble {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 14px 20px;
+      background: #FFF;
+      border-radius: 20px;
+      width: fit-content;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.04);
+      border: 1px solid #ECE7DD;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      background: var(--primary);
+      border-radius: 50%;
+      animation: bounce 1.1s infinite ease-in-out;
+    }
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0); }
+      40% { transform: scale(1); }
+    }
+
+    /* 영수증 및 완료 카드 */
+    .receipt-card {
+      background: #FFFFFF;
+      border: 3px solid var(--primary);
+      border-radius: 24px;
+      padding: 22px;
+      box-shadow: 0 8px 24px rgba(255,123,84,0.18);
+      animation: popIn 0.35s ease;
+    }
+    .receipt-title {
+      font-size: 22px;
+      font-weight: 900;
+      color: var(--text);
+      border-bottom: 2px dashed #E5E0D8;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .receipt-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 15px;
+      color: #444;
+      margin-bottom: 18px;
+    }
+    .receipt-row {
+      display: flex;
+      justify-content: space-between;
+    }
+    .receipt-row strong {
+      color: var(--primary);
+    }
+    .btn-finish-pay {
+      width: 100%;
+      background: #2E7D32;
+      color: #FFF;
+      border: none;
+      padding: 18px;
+      border-radius: 18px;
+      font-size: 20px;
+      font-weight: 900;
+      cursor: pointer;
+      box-shadow: 0 5px 15px rgba(46,125,50,0.3);
+      transition: transform 0.1s;
+    }
+    .btn-finish-pay:active { transform: scale(0.97); }
+  </style>
+</head>
+<body>
+
+  <div class="kiosk-screen">
+    <!-- 헤더 -->
+    <div class="kiosk-header">
+      <div class="kiosk-badge">🐻 AI 바리스타 주문 도우미</div>
+      <button class="btn-reset" onclick="resetOrder()">🔄 처음부터</button>
+    </div>
+
+    <!-- 진행 상황 표시줄 -->
+    <div class="live-summary-bar">
+      <span>진행 상황: <strong id="currentProgress">음료 종류 선택</strong></span>
+      <span id="selectedMenuName" style="color:var(--primary);">선택 중...</span>
+    </div>
+
+    <!-- 대화 스크롤 영역 -->
+    <div class="chat-container" id="chatArea">
+      <div class="character-stage">
+        <div class="character-avatar" id="avatarEmoji">🐻☕</div>
+        <div class="character-name">바리스타 곰디</div>
+      </div>
+
+      <!-- 첫 질문 -->
+      <div class="bubble ai">
+        어서오세요, 손님! 천천히 편하게 주문하세요. 😊<br><br>
+        <strong>어떤 종류의 음료를 드시겠어요?</strong>
+      </div>
+
+      <!-- 1단계: 카테고리 선택 -->
+      <div class="choice-group choice-grid-2" id="stepCategoryChoices">
+        <button class="choice-btn" onclick="selectCategory('coffee')">
+          <span class="choice-icon">☕</span>
+          <div><span>커피</span><span class="choice-sub-text">아메리카노, 모카 등</span></div>
+        </button>
+        <button class="choice-btn" onclick="selectCategory('latte')">
+          <span class="choice-icon">🥛</span>
+          <div><span>라떼</span><span class="choice-sub-text">카페라떼, 딸기라떼 등</span></div>
+        </button>
+        <button class="choice-btn" onclick="selectCategory('ade')">
+          <span class="choice-icon">🍋</span>
+          <div><span>에이드</span><span class="choice-sub-text">상큼한 탄산 과일 음료</span></div>
+        </button>
+        <button class="choice-btn" onclick="selectCategory('smoothie')">
+          <span class="choice-icon">🍧</span>
+          <div><span>스무디</span><span class="choice-sub-text">얼음과 함께 갈아낸 음료</span></div>
+        </button>
+        <button class="choice-btn" onclick="selectCategory('juice')">
+          <span class="choice-icon">🍓</span>
+          <div><span>생과일 주스</span><span class="choice-sub-text">수박, 키위, 망고 등</span></div>
+        </button>
+        <button class="choice-btn" onclick="selectCategory('tea')">
+          <span class="choice-icon">🍵</span>
+          <div><span>티 (따뜻한 차)</span><span class="choice-sub-text">유자차, 녹차, 아이스티</span></div>
+        </button>
+        <button class="choice-btn" onclick="selectCategory('dessert')" style="grid-column: span 2;">
+          <span class="choice-icon">🥐</span>
+          <div><span>디저트 / 빵</span><span class="choice-sub-text">크로와상, 치즈케이크 등</span></div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 카테고리별 전체 메뉴 데이터
+    const MENU_DATABASE = {
+      coffee: {
+        name: '커피',
+        items: ['아메리카노', '헤이즐넛아메리카노', '카라멜마끼야또', '카페모카', '카푸치노'],
+        isCoffee: true,
+        canHotIce: true
+      },
+      latte: {
+        name: '라떼',
+        items: ['카페라떼', '바닐라라떼', '헤이즐넛라떼', '딸기라떼', '고구마라떼', '곡물라떼'],
+        isLatte: true,
+        canHotIce: true
+      },
+      ade: {
+        name: '에이드',
+        items: ['레몬에이드', '자몽에이드', '청포도에이드', '체리에이드', '블루레몬에이드'],
+        forceIce: true
+      },
+      smoothie: {
+        name: '스무디',
+        items: ['요거트스무디', '딸기요거트스무디', '블루베리요거트스무디', '초코스무디'],
+        forceIce: true
+      },
+      juice: {
+        name: '주스',
+        items: ['딸기주스', '수박주스', '키위주스', '망고주스'],
+        forceIce: true
+      },
+      tea: {
+        name: '티(차)',
+        items: ['아이스티', '녹차', '유자차', '캐모마일', '얼그레이', '허니블랙자몽티'],
+        canHotIce: true
+      },
+      dessert: {
+        name: '디저트',
+        items: ['크로와상', '치즈케이크', '초코마카롱세트', '단호박타르트'],
+        isDessert: true
+      }
+    };
+
+    // 주문 진행 상태
+    let orderState = {
+      categoryKey: null,
+      menuName: null,
+      temp: null,
+      size: null,
+      shot: null,
+      syrup: null,
+      milk: null,
+      iceAmount: null,
+      cup: null,
+      topping: null
+    };
+
+    // 질문 대기열 큐
+    let questionQueue = [];
+
+    const chatArea = document.getElementById('chatArea');
+    const avatarEmoji = document.getElementById('avatarEmoji');
+    const currentProgress = document.getElementById('currentProgress');
+    const selectedMenuName = document.getElementById('selectedMenuName');
+
+    // 1단계: 카테고리 선택
+    function selectCategory(categoryKey) {
+      document.getElementById('stepCategoryChoices').style.display = 'none';
+      orderState.categoryKey = categoryKey;
+      const cat = MENU_DATABASE[categoryKey];
+
+      appendUserBubble(`${cat.name} 마실게요`);
+      showThinking();
+
+      setTimeout(() => {
+        removeThinking();
+        avatarEmoji.textContent = '🐻💡';
+        currentProgress.textContent = '상세 메뉴 선택';
+
+        let html = `
+          <div class="bubble ai">
+            좋은 선택이세요! <strong>[${cat.name}]</strong> 메뉴 중 어떤 것으로 준비해 드릴까요?
+          </div>
+          <div class="choice-group" id="stepMenuChoices">`;
+
+        cat.items.forEach(item => {
+          html += `
+            <button class="choice-btn" onclick="selectMenu('${item}')">
+              <span class="choice-icon">👉</span>
+              <span>${item}</span>
+            </button>`;
+        });
+        html += `</div>`;
+
+        chatArea.insertAdjacentHTML('beforeend', html);
+        scrollToBottom();
+      }, 500);
+    }
+
+    // 2단계: 메뉴 선택 및 질문 큐 구성
+    function selectMenu(menuName) {
+      document.getElementById('stepMenuChoices').style.display = 'none';
+      orderState.menuName = menuName;
+      selectedMenuName.textContent = menuName;
+
+      appendUserBubble(`${menuName} 주세요!`);
+      showThinking();
+
+      // 메뉴 종류에 맞춰 앞으로 물어볼 질문 큐를 스마트하게 구성
+      const cat = MENU_DATABASE[orderState.categoryKey];
+      questionQueue = [];
+
+      if (cat.isDessert) {
+        // 디저트의 경우 포장 여부만 바로 묻기
+        questionQueue.push('cup');
+      } else {
+        // 음료의 경우
+        if (cat.canHotIce) {
+          questionQueue.push('temp'); // 핫 or 아이스
+        } else if (cat.forceIce) {
+          orderState.temp = '차갑게(ICE)';
+        }
+
+        questionQueue.push('size'); // 사이즈 선택
+
+        if (cat.isCoffee || cat.isLatte) {
+          questionQueue.push('shot'); // 에스프레소 샷
+        }
+
+        if (cat.isLatte) {
+          questionQueue.push('milk'); // 우유 종류
+        }
+
+        // 아이스인 경우에만 얼음량 묻기 (추후 temp 선택 후 동적 분기)
+        questionQueue.push('check_ice');
+
+        questionQueue.push('syrup'); // 시럽 선택
+        questionQueue.push('cup'); // 컵 선택
+        questionQueue.push('topping'); // 토핑 선택
+      }
+
+      setTimeout(() => {
+        removeThinking();
+        askNextQuestion();
+      }, 500);
+    }
+
+    // 질문 큐에서 하나씩 꺼내 질문 진행
+    function askNextQuestion() {
+      if (questionQueue.length === 0) {
+        showFinalReceipt();
+        return;
+      }
+
+      const next = questionQueue.shift();
+
+      if (next === 'temp') {
+        askTemp();
+      } else if (next === 'size') {
+        askSize();
+      } else if (next === 'shot') {
+        askShot();
+      } else if (next === 'milk') {
+        askMilk();
+      } else if (next === 'check_ice') {
+        if (orderState.temp === '차갑게(ICE)') {
+          askIce();
+        } else {
+          askNextQuestion(); // 핫 음료면 스킵
+        }
+      } else if (next === 'syrup') {
+        askSyrup();
+      } else if (next === 'cup') {
+        askCup();
+      } else if (next === 'topping') {
+        askTopping();
+      }
+    }
+
+    /* ========================================================
+       옵션별 질문 함수들
+       ======================================================== */
+
+    // 1. 온도 (HOT / ICE)
+    function askTemp() {
+      currentProgress.textContent = '온도 선택';
+      avatarEmoji.textContent = '🐻🌡️';
+
+      const html = `
+        <div class="bubble ai">
+          따뜻하게 데워드릴까요, 아니면 시원한 얼음 음료로 드릴까요?
+        </div>
+        <div class="choice-group choice-grid-2" id="tempChoice">
+          <button class="choice-btn" onclick="saveOption('temp', '따뜻하게(HOT)', '♨️ 따뜻하게 마실게요', 'tempChoice')">
+            <span class="choice-icon">♨️</span>
+            <div><span>따뜻하게</span><span class="choice-sub-text">HOT 음료</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('temp', '차갑게(ICE)', '🧊 시원한 아이스로요', 'tempChoice')">
+            <span class="choice-icon">🧊</span>
+            <div><span>차갑게</span><span class="choice-sub-text">ICE 얼음 음료</span></div>
+          </button>
+        </div>`;
+      chatArea.insertAdjacentHTML('beforeend', html);
+      scrollToBottom();
+    }
+
+    // 2. 사이즈 (양)
+    function askSize() {
+      currentProgress.textContent = '사이즈 선택';
+      avatarEmoji.textContent = '🐻☕';
+
+      const html = `
+        <div class="bubble ai">
+          크기(양)는 어느 정도로 드릴까요? 보통(Tall)을 가장 많이 찾으세요.
+        </div>
+        <div class="choice-group" id="sizeChoice">
+          <button class="choice-btn" onclick="saveOption('size', '보통 (Tall)', '보통(Tall) 크기로 주세요', 'sizeChoice')">
+            <span class="choice-icon">🥛</span>
+            <div><span>보통 (Tall)</span><span class="choice-sub-text">가장 일반적인 표준 사이즈</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('size', '크게 (Grande)', '넉넉하게 큰 사이즈로요', 'sizeChoice')">
+            <span class="choice-icon">🥤</span>
+            <div><span>크게 (Grande)</span><span class="choice-sub-text">넉넉하게 드시기 좋아요 (+500원)</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('size', '아주 크게 (Venti)', '아주 큰 벤티로 주세요', 'sizeChoice')">
+            <span class="choice-icon">🧋</span>
+            <div><span>아주 크게 (Venti)</span><span class="choice-sub-text">하루 종일 든든한 대용량 (+1,000원)</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('size', '작게 (Short)', '양이 적은 작은 컵이요', 'sizeChoice')">
+            <span class="choice-icon">☕</span>
+            <div><span>작게 (Short)</span><span class="choice-sub-text">부담 없는 아담한 양</span></div>
+          </button>
+        </div>`;
+      chatArea.insertAdjacentHTML('beforeend', html);
+      scrollToBottom();
+    }
+
+    // 3. 에스프레소 샷
+    function askShot() {
+      currentProgress.textContent = '커피 진하기';
+      avatarEmoji.textContent = '🐻💪';
+
+      const html = `
+        <div class="bubble ai">
+          커피 진하기는 어떻게 맞춰드릴까요? (기본 1샷이 들어가요)
+        </div>
+        <div class="choice-group" id="shotChoice">
+          <button class="choice-btn" onclick="saveOption('shot', '기본 1샷', '기본 1샷 그대로 주세요', 'shotChoice')">
+            <span class="choice-icon">👌</span>
+            <div><span>기본 그대로 (1샷)</span><span class="choice-sub-text">적당하고 부드러운 농도</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('shot', '연하게 (반 샷)', '쓰지 않게 연하게 타주세요', 'shotChoice')">
+            <span class="choice-icon">💧</span>
+            <div><span>연하게 (반 샷)</span><span class="choice-sub-text">카페인 부담 없이 가볍게</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('shot', '진하게 (+1샷 추가)', '진하게 1샷 더 넣어주세요', 'shotChoice')">
+            <span class="choice-icon">☕</span>
+            <div><span>진하게 (+1샷 추가)</span><span class="choice-sub-text">더 진한 커피 향 (+500원)</span></div>
+          </button>
+        </div>`;
+      chatArea.insertAdjacentHTML('beforeend', html);
+      scrollToBottom();
+    }
+
+    // 4. 우유 선택
+    function askMilk() {
+      currentProgress.textContent = '우유 종류 선택';
+      avatarEmoji.textContent = '🐻🥛';
+
+      const html = `
+        <div class="bubble ai">
+          라떼에 들어갈 우유는 어떤 것으로 해드릴까요?
+        </div>
+        <div class="choice-group" id="milkChoice">
+          <button class="choice-btn" onclick="saveOption('milk', '일반 우유', '일반 우유로 넣어주세요', 'milkChoice')">
+            <span class="choice-icon">🥛</span>
+            <div><span>일반 우유</span><span class="choice-sub-text">고소하고 부드러운 신선한 우유</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('milk', '저지방 우유', '가벼운 저지방 우유요', 'milkChoice')">
+            <span class="choice-icon">🌱</span>
+            <div><span>저지방 우유</span><span class="choice-sub-text">깔끔하고 부담 없는 칼로리</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('milk', '오트(귀리)밀크', '속 편한 오트밀크요', 'milkChoice')">
+            <span class="choice-icon">🌾</span>
+            <div><span>오트(귀리) 밀크</span><span class="choice-sub-text">유제품 소화 잘 안 되시는 분께 추천 (+600원)</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('milk', '고소한 두유', '두유로 바꿔주세요', 'milkChoice')">
+            <span class="choice-icon">🫘</span>
+            <div><span>고소한 두유</span><span class="choice-sub-text">담백하고 든든한 콩 음료 (+600원)</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('milk', '아몬드 밀크', '아몬드 밀크로 주세요', 'milkChoice')">
+            <span class="choice-icon">🌰</span>
+            <div><span>아몬드 밀크</span><span class="choice-sub-text">은은한 견과류 풍미 (+600원)</span></div>
+          </button>
+        </div>`;
+      chatArea.insertAdjacentHTML('beforeend', html);
+      scrollToBottom();
+    }
+
+    // 5. 얼음량
+    function askIce() {
+      currentProgress.textContent = '얼음량 조절';
+      avatarEmoji.textContent = '🐻🧊';
+
+      const html = `
+        <div class="bubble ai">
+          얼음 양은 시원하게 보통으로 넣어드릴까요, 아니면 적게 넣어드릴까요?
+        </div>
+        <div class="choice-group" id="iceChoice">
+          <button class="choice-btn" onclick="saveOption('iceAmount', '얼음 보통', '얼음 보통으로 넣어주세요', 'iceChoice')">
+            <span class="choice-icon">🧊</span>
+            <div><span>얼음 보통</span><span class="choice-sub-text">시원하게 드시기 딱 좋은 양</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('iceAmount', '얼음 적게', '너무 차갑지 않게 얼음 조금만요', 'iceChoice')">
+            <span class="choice-icon">🧊</span>
+            <div><span>얼음 적게</span><span class="choice-sub-text">너무 차가운 음료가 부담스러울 때</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('iceAmount', '얼음 많이', '얼음 아주 많이요!', 'iceChoice')">
+            <span class="choice-icon">🧊🧊</span>
+            <div><span>얼음 많이</span><span class="choice-sub-text">갈증 확 풀리게 아주 차갑게</span></div>
+          </button>
+        </div>`;
+      chatArea.insertAdjacentHTML('beforeend', html);
+      scrollToBottom();
+    }
+
+    // 6. 시럽
+    function askSyrup() {
+      currentProgress.textContent = '단맛/시럽 조절';
+      avatarEmoji.textContent = '🐻🍯';
+
+      const html = `
+        <div class="bubble ai">
+          단맛(시럽)은 어떻게 해드릴까요?
+        </div>
+        <div class="choice-group" id="syrupChoice">
+          <button class="choice-btn" onclick="saveOption('syrup', '기본 정량', '원래 레시피대로 맛있게 타주세요', 'syrupChoice')">
+            <span class="choice-icon">🍯</span>
+            <div><span>기본 정량</span><span class="choice-sub-text">카페 표준 달콤함 그대로</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('syrup', '덜 달게', '많이 안 달게 시럽 조금만요', 'syrupChoice')">
+            <span class="choice-icon">🥄</span>
+            <div><span>덜 달게 (반만 넣기)</span><span class="choice-sub-text">은은하고 담백한 단맛</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('syrup', '시럽 빼기', '단 거 싫으니 시럽 다 빼주세요', 'syrupChoice')">
+            <span class="choice-icon">❌</span>
+            <div><span>시럽 빼기</span><span class="choice-sub-text">단맛 없이 원재료 그대로</span></div>
+          </button>
+        </div>`;
+      chatArea.insertAdjacentHTML('beforeend', html);
+      scrollToBottom();
+    }
+
+    // 7. 컵 선택 (포장 여부)
+    function askCup() {
+      currentProgress.textContent = '컵/포장 선택';
+      avatarEmoji.textContent = '🐻🥤';
+
+      const html = `
+        <div class="bubble ai">
+          음료는 어디에 담아서 준비해 드릴까요?
+        </div>
+        <div class="choice-group" id="cupChoice">
+          <button class="choice-btn" onclick="saveOption('cup', '매장 다회용 컵', '매장에서 마시고 갈게요', 'cupChoice')">
+            <span class="choice-icon">☕</span>
+            <div><span>매장 다회용 컵</span><span class="choice-sub-text">카페 안 자리에 앉아서 드실 때</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('cup', '일회용 컵 (포장)', '들고 나가면서 마실게요', 'cupChoice')">
+            <span class="choice-icon">🛍️</span>
+            <div><span>일회용 컵 (포장)</span><span class="choice-sub-text">밖으로 테이크아웃 해가실 때</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('cup', '개인 텀블러', '제 텀블러에 담아주세요', 'cupChoice')">
+            <span class="choice-icon">🎒</span>
+            <div><span>개인 텀블러</span><span class="choice-sub-text">환경 보호 할인 (-300원 할인)</span></div>
+          </button>
+        </div>`;
+      chatArea.insertAdjacentHTML('beforeend', html);
+      scrollToBottom();
+    }
+
+    // 8. 추가 토핑
+    function askTopping() {
+      currentProgress.textContent = '추가 토핑';
+      avatarEmoji.textContent = '🐻🍦';
+
+      const html = `
+        <div class="bubble ai">
+          음료 위에 올려드릴 특별한 토핑이 있으신가요?
+        </div>
+        <div class="choice-group" id="toppingChoice">
+          <button class="choice-btn" onclick="saveOption('topping', '토핑 없음', '토핑은 안 넣을게요', 'toppingChoice')">
+            <span class="choice-icon">👌</span>
+            <div><span>토핑 안 넣기</span><span class="choice-sub-text">깔끔하게 음료만 마실래요</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('topping', '휘핑크림 올리기', '부드러운 생크림 얹어주세요', 'toppingChoice')">
+            <span class="choice-icon">🍦</span>
+            <div><span>휘핑크림</span><span class="choice-sub-text">부드럽고 달콤한 생크림 (+500원)</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('topping', '초코 드리즐 추가', '초코 시럽 뿌려주세요', 'toppingChoice')">
+            <span class="choice-icon">🍫</span>
+            <div><span>초코 드리즐</span><span class="choice-sub-text">달콤한 초콜릿 소스 (+300원)</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('topping', '카라멜 드리즐 추가', '카라멜 시럽 둘러주세요', 'toppingChoice')">
+            <span class="choice-icon">🍬</span>
+            <div><span>카라멜 드리즐</span><span class="choice-sub-text">향긋한 달콤 카라멜 (+300원)</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('topping', '시나몬 파우더 솔솔', '시나몬 계피가루 뿌려주세요', 'toppingChoice')">
+            <span class="choice-icon">🍂</span>
+            <div><span>시나몬 파우더</span><span class="choice-sub-text">향긋한 계피 가루 (+200원)</span></div>
+          </button>
+          <button class="choice-btn" onclick="saveOption('topping', '자바칩 추가', '바삭한 자바칩 넣어주세요', 'toppingChoice')">
+            <span class="choice-icon">🍪</span>
+            <div><span>초코 자바칩</span><span class="choice-sub-text">바삭바삭 씹히는 초코칩 (+700원)</span></div>
+          </button>
+        </div>`;
+      chatArea.insertAdjacentHTML('beforeend', html);
+      scrollToBottom();
+    }
+
+    // 옵션 선택 공통 저장 헬퍼
+    function saveOption(key, val, userSaid, elementId) {
+      document.getElementById(elementId).style.display = 'none';
+      orderState[key] = val;
+      appendUserBubble(userSaid);
+      showThinking();
+
+      setTimeout(() => {
+        removeThinking();
+        askNextQuestion();
+      }, 400);
+    }
+
+    // 최종 결제 및 주문 내역 표시
+    function showFinalReceipt() {
+      currentProgress.textContent = '주문 완료 확인';
+      avatarEmoji.textContent = '🐻🎉';
+
+      let detailsHtml = '';
+      if (orderState.temp) detailsHtml += `<div class="receipt-row"><span>온도</span><strong>${orderState.temp}</strong></div>`;
+      if (orderState.size) detailsHtml += `<div class="receipt-row"><span>크기</span><strong>${orderState.size}</strong></div>`;
+      if (orderState.shot) detailsHtml += `<div class="receipt-row"><span>샷 진하기</span><strong>${orderState.shot}</strong></div>`;
+      if (orderState.milk) detailsHtml += `<div class="receipt-row"><span>우유</span><strong>${orderState.milk}</strong></div>`;
+      if (orderState.iceAmount) detailsHtml += `<div class="receipt-row"><span>얼음</span><strong>${orderState.iceAmount}</strong></div>`;
+      if (orderState.syrup) detailsHtml += `<div class="receipt-row"><span>시럽</span><strong>${orderState.syrup}</strong></div>`;
+      if (orderState.cup) detailsHtml += `<div class="receipt-row"><span>포장/컵</span><strong>${orderState.cup}</strong></div>`;
+      if (orderState.topping && orderState.topping !== '토핑 없음') {
+        detailsHtml += `<div class="receipt-row"><span>추가 토핑</span><strong>${orderState.topping}</strong></div>`;
+      }
+
+      const receipt = `
+        <div class="bubble ai">
+          주문 옵션을 모두 선택하셨어요! 👏<br>
+          아래 내용이 맞으신가요? 확인 후 결제해 주세요.
+        </div>
+        <div class="receipt-card">
+          <div class="receipt-title">
+            <span>📋 최종 주문서</span>
+            <span style="color:var(--primary); font-size:18px;">${orderState.menuName}</span>
+          </div>
+          <div class="receipt-list">
+            ${detailsHtml}
+          </div>
+          <button class="btn-finish-pay" onclick="completePayment()">
+            💳 확인했습니다! 카드로 결제할게요
+          </button>
+        </div>
+      `;
+
+      chatArea.insertAdjacentHTML('beforeend', receipt);
+      scrollToBottom();
+    }
+
+    // 결제 완료 완료 화면
+    function completePayment() {
+      avatarEmoji.textContent = '💖🐻';
+      chatArea.innerHTML = `
+        <div class="character-stage" style="margin-top: 40px;">
+          <div class="character-avatar" style="font-size: 76px;">💖🐻</div>
+          <div class="character-name" style="font-size: 24px; margin-top:12px;">주문이 정상 완료되었어요!</div>
+        </div>
+        <div class="bubble ai" style="text-align: center; font-size: 21px; width: 100%; max-width: 100%;">
+          주문번호 <strong style="color:var(--primary); font-size: 30px;">#108</strong><br><br>
+          손님께서 주문하신 <strong>[ ${orderState.menuName} ]</strong>을<br>
+          곰디가 정성 가득 담아 맛있게 만들어 드릴게요!<br><br>
+          안쪽 편안한 자리에 앉아 계시면 번호를 불러드릴게요. ☕
+        </div>
+        <button class="btn-finish-pay" style="margin-top: 24px; background: #FF7B54;" onclick="resetOrder()">
+          🔄 다음 손님 주문 도와드리기
+        </button>
+      `;
+    }
+
+    // UI 보조 함수
+    function appendAiBubble(text) {
+      const el = document.createElement('div');
+      el.className = 'bubble ai';
+      el.innerHTML = text;
+      chatArea.appendChild(el);
+    }
+
+    function appendUserBubble(text) {
+      const el = document.createElement('div');
+      el.className = 'bubble user';
+      el.textContent = text;
+      chatArea.appendChild(el);
+    }
+
+    function showThinking() {
+      const el = document.createElement('div');
+      el.className = 'thinking-bubble';
+      el.id = 'thinkingBubble';
+      el.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+      chatArea.appendChild(el);
+      scrollToBottom();
+    }
+
+    function removeThinking() {
+      const el = document.getElementById('thinkingBubble');
+      if (el) el.remove();
+    }
+
+    function scrollToBottom() {
+      setTimeout(() => {
+        chatArea.scrollTop = chatArea.scrollHeight;
+      }, 50);
+    }
+
+    function resetOrder() {
+      location.reload();
+    }
+  </script>
+</body>
+</html>
